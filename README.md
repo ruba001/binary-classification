@@ -1,2 +1,0 @@
-# binary-classification
-kaggle competition 
