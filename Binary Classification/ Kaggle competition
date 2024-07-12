@@ -13,3 +13,140 @@ from sklearn.preprocessing import StandardScaler
 # Load the datasets
 train = pd.read_csv('/kaggle/input/binary-classification/train.csv')
 test = pd.read_csv('/kaggle/input/binary-classification/test.csv')
+
+# Explore the Data
+print(train.head())
+print(test.head())
+
+# Get basic information about the datasets
+print(train.info())
+print(test.info())
+
+# Describe the datasets to understand the distributions
+print(train.describe())
+print(test.describe())
+
+# Exploratory Data Analysis (EDA)
+# Visualize Data
+# Plot distributions of features
+train.hist(bins=50, figsize=(20, 15))
+plt.show()
+
+# Analyze Target Variable:
+# Check the distribution of the Response variable
+sns.countplot(x='Response', data=train)
+plt.show()
+
+# Identify Patterns and Relationships
+# Use correlation matrices to identify relationships between features
+numeric_columns = train.select_dtypes(include=['float64', 'int64'])
+corr_matrix = numeric_columns.corr()
+sns.heatmap(corr_matrix, annot=True, cmap='coolwarm')
+plt.show()
+
+# Data Cleaning and Feature Engineering
+# Handle Missing Values
+# Identify missing values
+print(train.isnull().sum())
+print(test.isnull().sum())
+
+# Ensure 'id' column in test data is present
+if 'id' not in test.columns:
+    raise KeyError("'id' column not found in test DataFrame.")
+
+# Extract 'id' column into test_ids
+test_ids = test['id']
+
+# Define the new IDs you want to use
+new_ids = [11504798 + i for i in range(len(test))]
+
+# Ensure the length of new_ids matches the number of rows in the test dataset
+if len(new_ids) != len(test):
+    raise ValueError("The length of new_ids does not match the number of rows in the test dataset.")
+
+# Replace the existing IDs in the test dataset with the new IDs
+test_ids = new_ids
+
+# Drop 'id' column in the test file
+test.drop('id', axis=1, inplace=True)
+
+# Separate the target variable before one-hot encoding
+if 'Response' not in train.columns:
+    raise KeyError("Response column not found in train DataFrame.")
+
+y = train['Response']
+train = train.drop('Response', axis=1)
+
+# Convert categorical columns into dummy variables
+categorical_columns = ['Gender', 'Vehicle_Age', 'Vehicle_Damage']
+
+# Apply one-hot encoding directly with pandas
+train_encoded = pd.get_dummies(train, columns=categorical_columns, drop_first=True, dtype=int)
+test_encoded = pd.get_dummies(test, columns=categorical_columns, drop_first=True, dtype=int)
+
+# Align the train and test dataframes to ensure they have the same columns
+train_encoded, test_encoded = train_encoded.align(test_encoded, join='inner', axis=1)
+
+# Scale the data
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(train_encoded)
+X_test_scaled = scaler.transform(test_encoded)
+
+# Split data into training and validation sets
+X_train, X_val, y_train, y_val = train_test_split(X_train_scaled, y, test_size=0.2, random_state=42)
+
+import time  # Import the time module
+# Train and evaluate models with timing measurements
+models = {
+    "Logistic Regression": LogisticRegression(max_iter=1000),
+    "Decision Tree": DecisionTreeClassifier(),
+    "Random Forest": RandomForestClassifier(),
+    "XGBoost": XGBClassifier(use_label_encoder=False, eval_metric='logloss')
+}
+
+model_performance = {}
+model_times = {}  # Dictionary to store training times
+
+for name, model in models.items():
+    start_time = time.time()  # Start timing
+    model.fit(X_train, y_train)
+    end_time = time.time()  # End timing
+    training_time = end_time - start_time  # Calculate training time
+    model_times[name] = training_time  # Store training time for the model
+    
+    y_pred = model.predict(X_val)
+    y_pred_proba = model.predict_proba(X_val)[:, 1]
+    accuracy = accuracy_score(y_val, y_pred)
+    roc_auc = roc_auc_score(y_val, y_pred_proba)
+    
+    print(f"{name}")
+    print(f"Training Time: {training_time:.2f} seconds")  # Print training time
+    print(f"Accuracy: {accuracy:.2f}")
+    print(f"ROC AUC: {roc_auc:.2f}")
+    print(classification_report(y_val, y_pred))
+    
+    model_performance[name] = roc_auc
+
+# Select the best model
+best_model_name = max(model_performance, key=model_performance.get)
+best_model = models[best_model_name]
+
+print(f"Best Model: {best_model_name} with ROC AUC: {model_performance[best_model_name]:.2f}")
+
+# Make predictions on the test data with the best model
+predictions_test = best_model.predict_proba(X_test_scaled)[:, 1]# Select the best model based on ROC AUC
+best_model_name = max(model_performance, key=model_performance.get)
+best_model = models[best_model_name]
+
+print(f"Training Time for {best_model_name}: {model_times[best_model_name]:.2f} seconds")
+
+# Make predictions on the test data with the best model
+predictions_test = best_model.predict_proba(X_test_scaled)[:, 1]
+
+# Prepare the result DataFrame
+result = pd.DataFrame({'id': test_ids, 'Response': predictions_test.flatten()}, columns=['id', 'Response'])
+
+# Save predictions to a CSV file
+result.to_csv('test_predictions.csv', index=False)
+
+print(result.head())
