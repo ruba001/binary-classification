@@ -1,16 +1,153 @@
-# binary-classification
-kaggle competition 
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+from sklearn.metrics import accuracy_score, roc_auc_score, classification_report
+from sklearn.preprocessing import StandardScaler
 
-Here is a comparison of the four models that I have trained, highlighting their strengths and why I choose XGBoost is the best model:
+# Load the datasets
+train = pd.read_csv('/kaggle/input/binary-classification/train.csv')
+test = pd.read_csv('/kaggle/input/binary-classification/test.csv')
 
-Logistic Regression: Description: A linear model for binary classification that predicts probabilities using a logistic function. Strengths: -Simple and interpretable. -Works well with linearly separable data. -Computationally efficient and fast. When to Use: When you need a simple, interpretable model. When the relationship between features and the target is roughly linear. For baseline performance comparison.
+# Explore the Data
+print(train.head())
+print(test.head())
 
-Decision Tree: Description: A tree-based model that splits data into subsets based on feature values to make predictions. Strengths: -Easy to interpret and visualize. -Captures non-linear relationships and interactions between features. -Requires little data preprocessing. When to Use: When interpretability is important. When you have complex, non-linear relationships in your data. When you need a model that can handle both numerical and categorical data without much preprocessing.
+# Get basic information about the datasets
+print(train.info())
+print(test.info())
 
-Random Forest: Description: An ensemble method that combines multiple decision trees to improve accuracy and control overfitting. Strengths: Reduces overfitting compared to a single decision tree. Handles non-linear relationships well. Provides feature importance scores. When to Use: When you need a robust model that generalizes well. When you have complex, non-linear data. When you need to handle high-dimensional data.
+# Describe the datasets to understand the distributions
+print(train.describe())
+print(test.describe())
 
-XGBoost: Description: An optimized gradient boosting algorithm that builds an ensemble of decision trees in a sequential manner. Strengths: High predictive performance. Handles missing data well. Supports regularization to reduce overfitting. Efficient and scalable implementation. When to Use: When you need state-of-the-art performance. When you have a large dataset with complex relationships. When you need a model that can be fine-tuned extensively for better performance.
+# Exploratory Data Analysis (EDA)
+# Visualize Data
+# Plot distributions of features
+train.hist(bins=50, figsize=(20, 15))
+plt.show()
 
-Findings For the binary classification project, where the goal is to predict which customers respond positively to an automobile insurance offer,so what is matter here is the performance, that's why I choose XGBoost as best model.
+# Analyze Target Variable:
+# Check the distribution of the Response variable
+sns.countplot(x='Response', data=train)
+plt.show()
 
-Conclusion If interpretability is crucial: Use Logistic Regression. If handling complex relationships are more important: Use Random Forest or XGBoost. If you are looking for the best performance and don't mind spending time on tuning and possibly dealing with more computational complexity, XGBoost would be a better choice.
+# Identify Patterns and Relationships
+# Use correlation matrices to identify relationships between features
+numeric_columns = train.select_dtypes(include=['float64', 'int64'])
+corr_matrix = numeric_columns.corr()
+sns.heatmap(corr_matrix, annot=True, cmap='coolwarm')
+plt.show()
+
+# Data Cleaning and Feature Engineering
+# Handle Missing Values
+# Identify missing values
+print(train.isnull().sum())
+print(test.isnull().sum())
+
+
+# Ensure 'id' column in test data is present
+if 'id' not in test.columns:
+    raise KeyError("'id' column not found in test DataFrame.")
+
+# Extract 'id' column into test_ids
+test_ids = test['id']
+
+# Define the new IDs you want to use
+new_ids = [11504798 + i for i in range(len(test))]
+
+# Ensure the length of new_ids matches the number of rows in the test dataset
+if len(new_ids) != len(test):
+    raise ValueError("The length of new_ids does not match the number of rows in the test dataset.")
+
+# Replace the existing IDs in the test dataset with the new IDs
+test_ids = new_ids
+
+# Drop 'id' column in the test file
+test.drop('id', axis=1, inplace=True)
+
+# Separate the target variable before one-hot encoding
+if 'Response' not in train.columns:
+    raise KeyError("Response column not found in train DataFrame.")
+
+y = train['Response']
+train = train.drop('Response', axis=1)
+
+# Convert categorical columns into dummy variables
+categorical_columns = ['Gender', 'Vehicle_Age', 'Vehicle_Damage']
+
+# Apply one-hot encoding directly with pandas
+train_encoded = pd.get_dummies(train, columns=categorical_columns, drop_first=True, dtype=int)
+test_encoded = pd.get_dummies(test, columns=categorical_columns, drop_first=True, dtype=int)
+
+# Align the train and test dataframes to ensure they have the same columns
+train_encoded, test_encoded = train_encoded.align(test_encoded, join='inner', axis=1)
+
+# Scale the data
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(train_encoded)
+X_test_scaled = scaler.transform(test_encoded)
+
+# Split data into training and validation sets
+X_train, X_val, y_train, y_val = train_test_split(X_train_scaled, y, test_size=0.2, random_state=42)
+
+import time  # Import the time module
+# Train and evaluate models with timing measurements
+models = {
+    "Logistic Regression": LogisticRegression(max_iter=1000),
+    "Decision Tree": DecisionTreeClassifier(),
+    "Random Forest": RandomForestClassifier(),
+    "XGBoost": XGBClassifier(use_label_encoder=False, eval_metric='logloss')
+}
+
+model_performance = {}
+model_times = {}  # Dictionary to store training times
+
+for name, model in models.items():
+    start_time = time.time()  # Start timing
+    model.fit(X_train, y_train)
+    end_time = time.time()  # End timing
+    training_time = end_time - start_time  # Calculate training time
+    model_times[name] = training_time  # Store training time for the model
+    
+    y_pred = model.predict(X_val)
+    y_pred_proba = model.predict_proba(X_val)[:, 1]
+    accuracy = accuracy_score(y_val, y_pred)
+    roc_auc = roc_auc_score(y_val, y_pred_proba)
+    
+    print(f"{name}")
+    print(f"Training Time: {training_time:.2f} seconds")  # Print training time
+    print(f"Accuracy: {accuracy:.2f}")
+    print(f"ROC AUC: {roc_auc:.2f}")
+    print(classification_report(y_val, y_pred))
+    
+    model_performance[name] = roc_auc
+
+    # Select the best model
+best_model_name = max(model_performance, key=model_performance.get)
+best_model = models[best_model_name]
+
+print(f"Best Model: {best_model_name} with ROC AUC: {model_performance[best_model_name]:.2f}")
+
+# Make predictions on the test data with the best model
+predictions_test = best_model.predict_proba(X_test_scaled)[:, 1]# Select the best model based on ROC AUC
+best_model_name = max(model_performance, key=model_performance.get)
+best_model = models[best_model_name]
+
+print(f"Training Time for {best_model_name}: {model_times[best_model_name]:.2f} seconds")
+
+# Make predictions on the test data with the best model
+predictions_test = best_model.predict_proba(X_test_scaled)[:, 1]
+
+# Prepare the result DataFrame
+result = pd.DataFrame({'id': test_ids, 'Response': predictions_test.flatten()}, columns=['id', 'Response'])
+
+# Save predictions to a CSV file
+result.to_csv('test_predictions.csv', index=False)
+
+print(result.head())
